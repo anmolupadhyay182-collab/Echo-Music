@@ -388,4 +388,3 @@ Because we do not host any media files, we cannot process DMCA takedown requests
 <div align="center">
   <p>Licensed under <a href="LICENSE">GPL-3.0</a></p>
 </div>
-
