@@ -13,6 +13,11 @@ jobs:
   build:
     name: Build Signed APK
     runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
 
     steps:
     - name: Checkout Repository
@@ -33,7 +38,7 @@ jobs:
         $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;28.2.13676358" || true
 
     - name: Cache Robolectric Android Runtime
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.m2/repository/org/robolectric
         key: robolectric-runtime-4.14.1
@@ -56,43 +61,37 @@ jobs:
         chmod +x gradlew
         ./gradlew :core:testDebugUnitTest :lyrics:testDebugUnitTest :app:testUniversalGmsDebugUnitTest
 
-    - name: Decode Keystore
-      if: ${{ env.KEYSTORE_BASE64 != '' }}
-      env:
-        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+    - name: Decode Release Keystore
+      if: ${{ env.KEYSTORE_BASE64 != '' && env.KEY_ALIAS != '' && env.KEY_PASSWORD != '' && env.STORE_PASSWORD != '' }}
       run: |
-        echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
+        echo "$KEYSTORE_BASE64" | base64 --decode > keystore.jks
+        test -s keystore.jks
 
-    - name: Build Release APK
-      if: ${{ env.KEYSTORE_BASE64 != '' }}
-      env:
-        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-      run: |
-        chmod +x gradlew
-        ./gradlew assembleUniversalGmsRelease
-
-    - name: Build Debug APK (fork PR fallback without signing)
-      if: ${{ env.KEYSTORE_BASE64 == '' }}
-      env:
-        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+    - name: Prepare Debug Keystore
+      if: ${{ env.KEYSTORE_BASE64 == '' || env.KEY_ALIAS == '' || env.KEY_PASSWORD == '' || env.STORE_PASSWORD == '' }}
       run: |
         mkdir -p "$HOME/.android"
-        keytool -genkeypair \
-          -keystore "$HOME/.android/debug.keystore" \
-          -storepass android \
-          -alias androiddebugkey \
-          -keypass android \
-          -dname "CN=Android Debug,O=Android,C=US" \
-          -keyalg RSA \
-          -validity 10000
-        chmod +x gradlew
-        ./gradlew assembleUniversalFossDebug
+        if [ ! -f "$HOME/.android/debug.keystore" ]; then
+          keytool -genkeypair \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA \
+            -validity 10000
+        fi
+
+    - name: Build Universal Debug APK
+      run: ./gradlew --no-daemon --stacktrace assembleUniversalGmsDebug
+
+    - name: Build Signed Universal Release APK
+      if: ${{ env.KEYSTORE_BASE64 != '' && env.KEY_ALIAS != '' && env.KEY_PASSWORD != '' && env.STORE_PASSWORD != '' }}
+      run: ./gradlew --no-daemon --stacktrace assembleUniversalGmsRelease
 
     - name: Upload Universal APK
       uses: actions/upload-artifact@v7
       with:
-        name: Echo-Music-Universal-APK
+        name: Fyxe-Music-Universal-APK
         path: app/build/outputs/apk/**/*.apk
+        if-no-files-found: error
